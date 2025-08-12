@@ -64,14 +64,12 @@ export default function ReservationsPage() {
 
   // 현재 날짜 기준으로 예정/완료 예약 분류
   const now = new Date()
-  const upcomingReservations = Array.isArray(userReservations)
-    ? userReservations.filter((r) => parseISO(r.endTime) > now)
-     .filter((r) => parseISO(r.endTime) > now)
-     .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime())
-;
+  const upcomingReservations = (userReservations ?? [])
+    .filter((r) => parseISO(r.endTime) > now)
+    .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
     
-  const completedReservations = userReservations
-    .sort((a, b) => parseISO(b.startTime).getTime() - parseISO(a.startTime).getTime()) // 최근 완료된 순
+  const completedReservations = (userReservations ?? [])
+    .sort((a, b) => parseISO(b.startTime).getTime() - parseISO(a.startTime).getTime()); // 최근 완료된 순
 
   // 스토리지 이벤트 리스너 추가
   useEffect(() => {
