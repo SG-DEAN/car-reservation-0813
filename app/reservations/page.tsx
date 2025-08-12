@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuth } from "@/contexts/auth-context"
 import { useReservationStore, type Reservation } from "@/services/reservation-service"
 import { parseISO } from "date-fns"
-import ReservationForm from "@/components/ReservationForm"
+import { ReservationForm } from "@/components/reservation-form"
 import { supabase } from "@/lib/supabaseClient"
 
 export default function ReservationsPage() {
