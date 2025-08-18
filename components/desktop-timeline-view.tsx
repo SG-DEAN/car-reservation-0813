@@ -25,7 +25,6 @@ import { useAuth } from "@/contexts/auth-context"
 import { useToast } from "@/components/ui/use-toast"
 import { useReservationStore } from "@/services/reservation-service"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
-import { supabase } from "@/lib/supabaseClient"
 
 // 예약 타입 정의
 interface Reservation {
@@ -892,15 +891,27 @@ export function DesktopTimelineView() {
     }
 
     setTimeout(() => {
-      addReservation(newReservation)
-      setIsSubmitting(false)
-      setIsReservationDialogOpen(false)
-      toast({
-        title: "예약 완료",
-        description: "차량 예약이 성공적으로 완료되었습니다.",
-      })
-    }, 1000)
-  }
+
+
+      const sampleReservation = {
+        id: `sample_${Date.now()}`,
+        car_id: selectedCar.id,
+        user_id: user.id,
+        user_name: `샘플사용자_${Math.floor(Math.random() * 100)}`,
+        user_department: "샘플부서",
+        start_time: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 내일
+        end_time: new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString(), // 내일 + 1시간
+        purpose: "샘플 업무",
+        destination: "샘플 목적지",
+        is_direct: false,
+        direct_reason: null,
+        passengers: 2,
+        is_maintenance_reservation: false,
+        maintenance_type: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
 
   // 예약 수정 핸들러
   const handleUpdateReservation = () => {
@@ -1468,14 +1479,19 @@ export function DesktopTimelineView() {
     )
   }
 
-  // 초기 데이터 로드
+
+    // 초기 데이터 로드
   useEffect(() => {
-    fetchReservations()
-    const channel = subscribeToReservations()
+    fetchReservations();
+
+    // subscribeToReservations가 '해제 함수'를 반환하도록 만들어 둠
+    const off = subscribeToReservations();
+
+    // 언마운트 시 구독 해제
     return () => {
-      if (channel) supabase.removeChannel(channel)
-    }
-  }, [fetchReservations, subscribeToReservations])
+      off?.();
+    };
+  }, [fetchReservations, subscribeToReservations]);
 
   // 마우스 이벤트 리스너 등록
   useEffect(() => {

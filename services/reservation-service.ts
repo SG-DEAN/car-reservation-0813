@@ -1,55 +1,93 @@
-// services/reservation-service.ts
-"use client"
+// /services/reservation-service.ts
+"use client";
 
-import { create } from "zustand"
-import { persist, createJSONStorage } from "zustand/middleware"
-import { supabase } from "@/lib/supabaseClient"
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { getSupabase } from "@/lib/supabaseClient";
 
+/** ---------- Types ---------- */
 export interface Car {
-  id: string
-  name: string
-  image: string
-  type: string
-  color: string
-  seats: string
-  location: string
-  licensePlate: string
-  status: "available" | "reserved"
+  id: string;
+  name: string;
+  image: string;
+  type: string;
+  color: string;
+  seats: string;
+  location: string;
+  licensePlate: string;
+  status: "available" | "reserved";
 }
 
 export interface Reservation {
-  id: string
-  carId: string
-  userId: string
-  userName: string
-  startTime: string
-  endTime: string
-  purpose?: string
-  destination?: string
-  isDirect: boolean
-  passengers: string[]
-  createdAt: string
-  updatedAt?: string
+  id: string;
+  carId: string;
+  userId: string;
+  userName: string;
+  startTime: string;       // ISO
+  endTime: string;         // ISO
+  purpose?: string;
+  destination?: string;
+  isDirect: boolean;
+  passengers: string[];
+  createdAt: string;       // ISO
+  updatedAt?: string;      // ISO
 }
+
+/** Supabase reservations 테이블(스네이크 케이스) */
+type DBReservation = {
+  id: string;
+  car_id: string;
+  user_id: string;
+  user_name: string | null;
+  start_time: string;
+  end_time: string;
+  purpose: string | null;
+  destination: string | null;
+  is_direct: boolean;
+  passengers: string[] | null;
+  created_at: string;
+  updated_at: string | null;
+};
 
 interface ReservationStore {
-  cars: Car[]
-  reservations: Reservation[]
-  lastUpdate: number
+  cars: Car[];
+  reservations: Reservation[];
+  lastUpdate: number;
 
-  hasHydrated: boolean
-  setHasHydrated: (v: boolean) => void
+  hasHydrated: boolean;
+  setHasHydrated: (v: boolean) => void;
 
-  setReservations: (list: Reservation[]) => void
-  fetchReservations: () => Promise<void>
+  setReservations: (list: Reservation[]) => void;
+  fetchReservations: () => Promise<void>;
 
-  subscribeToReservations: () => () => void
-  
-  addReservation: (reservation: Reservation) => void
-  updateReservation: (id: string, updates: Partial<Reservation>) => void
-  deleteReservation: (id: string) => void
+  /** 실시간 구독 시작 → 언마운트 시 호출할 해제 함수 반환 */
+  subscribeToReservations: () => () => void;
+
+  /** 로컬 상태만 조작(낙관적 갱신용) */
+  addReservation: (reservation: Reservation) => void;
+  updateReservation: (id: string, updates: Partial<Reservation>) => void;
+  deleteReservation: (id: string) => void;
+
+  /** ===== Supabase CRUD ===== */
+  createReservationOnServer: (payload: {
+    carId: string;
+    startTime: string;   // ISO
+    endTime: string;     // ISO
+    purpose?: string;
+    destination?: string;
+    isDirect?: boolean;
+    passengers?: string[];
+  }) => Promise<Reservation>;
+
+  updateReservationOnServer: (
+    id: string,
+    updates: Partial<Omit<Reservation, "id" | "userId" | "userName" | "createdAt">>
+  ) => Promise<Reservation>;
+
+  deleteReservationOnServer: (id: string) => Promise<void>;
 }
 
+/** ---------- Sample Cars (임시) ---------- */
 const sampleCars: Car[] = [
   {
     id: "1",
@@ -128,8 +166,27 @@ const sampleCars: Car[] = [
     licensePlate: "90마 7890",
     status: "available",
   },
-]
+];
 
+/** ---------- Helpers ---------- */
+function mapDBToModel(r: DBReservation): Reservation {
+  return {
+    id: r.id,
+    carId: r.car_id,
+    userId: r.user_id,
+    userName: r.user_name ?? "",
+    startTime: r.start_time,
+    endTime: r.end_time,
+    purpose: r.purpose ?? "",
+    destination: r.destination ?? "",
+    isDirect: r.is_direct,
+    passengers: r.passengers ?? [],
+    createdAt: r.created_at,
+    updatedAt: r.updated_at ?? undefined,
+  };
+}
+
+/** ---------- Store ---------- */
 export const useReservationStore = create<ReservationStore>()(
   persist(
     (set, get) => ({
@@ -137,58 +194,54 @@ export const useReservationStore = create<ReservationStore>()(
       reservations: [],
       lastUpdate: Date.now(),
 
-      // 🔹 Supabase에서 예약 가져오기
+      hasHydrated: false,
+      setHasHydrated: (v) => set({ hasHydrated: v }),
+
+      setReservations: (list) => set({ reservations: list, lastUpdate: Date.now() }),
+
+      /** Read: Supabase에서 예약 가져오기 */
       fetchReservations: async () => {
-        const { data, error } = await supabase
+        const sb = getSupabase();
+        if (!sb) return;
+
+        const { data, error } = await sb
           .from("reservations")
           .select("*")
-          .order("start_time", { ascending: true })
-        
+          .order("start_time", { ascending: true });
+
         if (error) {
-          console.error("[reservations] fetch error:", error)
-          return
+          console.error("[reservations] fetch error:", error);
+          return;
         }
 
-        const mapped = (data ?? []).map((r) => ({
-          id: r.id,
-          carId: r.car_id,
-          userId: r.user_id,
-          userName: r.user_name ?? "", // DB에 없으면 빈 문자열
-          startTime: r.start_time,
-          endTime: r.end_time,
-          purpose: r.purpose ?? "",
-          destination: r.destination ?? "",
-          isDirect: r.is_direct,
-          passengers: r.passengers ?? [],
-          createdAt: r.created_at,
-          updatedAt: r.updated_at,
-        }))
-
-        set({ reservations: mapped, lastUpdate: Date.now() })
+        const mapped: Reservation[] = (data as DBReservation[] | null)?.map(mapDBToModel) ?? [];
+        set({ reservations: mapped, lastUpdate: Date.now() });
       },
 
-      // 🔹 실시간 구독 설정
+      /** 실시간 구독 시작 → 해제 함수 반환 */
       subscribeToReservations: () => {
-        const channel = supabase
+        const sb = getSupabase();
+        if (!sb) return () => {};
+
+        // Supabase 대시보드: Table -> reservations -> Realtime ON 필요
+        const channel = sb
           .channel("reservations-changes")
           .on(
             "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "reservations",
-            },
-            (payload) => {
-              console.log("📡 예약 변경 감지됨:", payload)
-              get().fetchReservations()
+            { event: "*", schema: "public", table: "reservations" },
+            () => {
+              // 변경 감지 시 최신 데이터로 갱신
+              get().fetchReservations();
             }
           )
-          .subscribe()
+          .subscribe();
 
-        return channel
+        return () => {
+          sb.removeChannel(channel);
+        };
       },
 
-      // 🔹 예약 추가
+      /** ===== 로컬 상태 조작(낙관적 갱신 용) ===== */
       addReservation: (reservation) => {
         set((state) => ({
           reservations: [
@@ -196,33 +249,118 @@ export const useReservationStore = create<ReservationStore>()(
             { ...reservation, createdAt: new Date().toISOString() },
           ],
           lastUpdate: Date.now(),
-        }))
+        }));
       },
 
-      // 🔹 예약 수정
       updateReservation: (id, updates) => {
         set((state) => ({
           reservations: state.reservations.map((r) =>
-            r.id === id
-              ? { ...r, ...updates, updatedAt: new Date().toISOString() }
-              : r
+            r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r
           ),
           lastUpdate: Date.now(),
-        }))
+        }));
       },
 
-      // 🔹 예약 삭제
       deleteReservation: (id) => {
         set((state) => ({
           reservations: state.reservations.filter((r) => r.id !== id),
           lastUpdate: Date.now(),
-        }))
+        }));
+      },
+
+      /** ====== Create (DB) ====== */
+      createReservationOnServer: async (payload) => {
+        const sb = getSupabase();
+        const { data: auth } = await sb.auth.getSession();
+        const uid = auth.session?.user?.id;
+        if (!uid) throw new Error("로그인이 필요합니다.");
+
+        // user_name은 프로필의 name이 있으면 우선, 없으면 이메일로
+        const userName =
+          (auth.session?.user?.user_metadata as any)?.name ??
+          auth.session?.user?.email ??
+          "";
+
+        const insertBody = {
+          car_id: payload.carId,
+          user_id: uid,                        // RLS 충족
+          user_name: userName,
+          start_time: payload.startTime,
+          end_time: payload.endTime,
+          purpose: payload.purpose ?? null,
+          destination: payload.destination ?? null,
+          is_direct: payload.isDirect ?? false,
+          passengers: payload.passengers ?? [],
+        };
+
+        const { data, error } = await sb
+          .from("reservations")
+          .insert([insertBody])
+          .select("*")
+          .single<DBReservation>();
+
+        if (error) throw error;
+        const created = mapDBToModel(data);
+        // 낙관적 갱신 (Realtime이 있어도 UX 좋게)
+        get().addReservation(created);
+        return created;
+      },
+
+      /** ====== Update (DB) ====== */
+      updateReservationOnServer: async (id, updates) => {
+        const sb = getSupabase();
+        const patch: Partial<DBReservation> = {
+          car_id: updates.carId,
+          start_time: updates.startTime,
+          end_time: updates.endTime,
+          purpose: updates.purpose ?? null,
+          destination: updates.destination ?? null,
+          is_direct: updates.isDirect,
+          passengers: updates.passengers,
+        };
+
+        // undefined 필드는 제거 (불필요한 null 업데이트 방지)
+        Object.keys(patch).forEach((k) => {
+          const key = k as keyof typeof patch;
+          if (typeof patch[key] === "undefined") delete patch[key];
+        });
+
+        const { data, error } = await sb
+          .from("reservations")
+          .update(patch)
+          .eq("id", id)
+          .select("*")
+          .single<DBReservation>();
+
+        if (error) throw error;
+        const updated = mapDBToModel(data);
+        get().updateReservation(id, updated); // 로컬 반영
+        return updated;
+      },
+
+      /** ====== Delete (DB) ====== */
+      deleteReservationOnServer: async (id) => {
+        const sb = getSupabase();
+
+        // 낙관적 삭제(롤백 대비 백업)
+        const prev = get().reservations;
+        set({ reservations: prev.filter((r) => r.id !== id), lastUpdate: Date.now() });
+
+        const { error } = await sb.from("reservations").delete().eq("id", id);
+        if (error) {
+          // 롤백
+          set({ reservations: prev, lastUpdate: Date.now() });
+          throw error;
+        }
       },
     }),
     {
       name: "car-reservations",
       storage: createJSONStorage(() => localStorage),
       version: 1,
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
-)
+);

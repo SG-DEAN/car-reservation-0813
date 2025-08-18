@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Eye, EyeOff, Car } from "lucide-react"
-import { supabase } from "@/lib/supabaseClient"
+import { getSupabase } from "@/lib/supabaseClient";
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({
@@ -30,27 +30,29 @@ export default function LoginPage() {
 
   // 실제 로그인 처리
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setError("")
+    e.preventDefault();
+    setIsLoading(true);
+    setError("");
 
     const email = getEmailFromId(formData.username)
     const password = formData.password
 
+    const sb = getSupabase();
+
     // Supabase 로그인 요청
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error } = await sb.auth.signInWithPassword({
       email,
       password,
-    })
+    });
 
-    if (!error) {
-      router.push("/")
+    if (error) {
+      setError("로그인 실패: " + error.message);
     } else {
-      setError("아이디 또는 비밀번호를 확인해주세요.")
+      // 로그인 성공 처리
     }
 
     setIsLoading(false)
-  }
+  };
 
   // 인풋 핸들러
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
